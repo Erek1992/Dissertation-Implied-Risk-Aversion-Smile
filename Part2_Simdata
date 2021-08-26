@@ -1,0 +1,275 @@
+import numpy as np
+import pandas as pd
+import QuantLib as ql
+import tensorflow as tf
+import matplotlib.pyplot as plt
+import math
+import tensorflow as tf
+
+from scipy.stats import norm
+from sklearn import model_selection
+from tensorflow import keras
+from tensorflow.keras import layers
+from tqdm import trange
+from random import uniform
+from scipy import stats
+print(tf.__version__)
+
+
+class BlackScholesProcess:
+	def __init__(self,s0 = None, sigma = None, risk_free = None, \
+					dividend = None, day_count = None, seed=0):
+                self.s0 = s0
+                self.sigma = sigma
+                self.risk_free = risk_free
+                self.dividend = dividend
+                self.day_count = day_count
+                self.seed = seed
+		
+	def get_process(self, calculation_date = ql.Date.todaysDate()):
+		spot_handle = ql.QuoteHandle(ql.SimpleQuote(self.s0))
+		rf_handle = ql.QuoteHandle(ql.SimpleQuote(self.risk_free))
+		dividend_handle = ql.QuoteHandle(ql.SimpleQuote(self.dividend))
+		
+		volatility = ql.BlackConstantVol(0, ql.NullCalendar(),self.sigma,self.day_count)
+		
+		# Assume flat term-structure.
+		flat_ts = ql.YieldTermStructureHandle(ql.FlatForward(0, ql.NullCalendar(), rf_handle, self.day_count))
+		dividend_yield = ql.YieldTermStructureHandle(ql.FlatForward(0, ql.NullCalendar(), dividend_handle, self.day_count))
+
+		ql.Settings.instance().evaluationDate = calculation_date   
+
+		return ql.GeneralizedBlackScholesProcess(
+							spot_handle,
+							dividend_yield,
+							flat_ts,
+							ql.BlackVolTermStructureHandle(volatility))
+
+	def gen_path(self, length = None, time_step = None, num_paths = None):
+		# The variable length is in the unit of one year.
+		rng = ql.GaussianRandomSequenceGenerator(ql.UniformRandomSequenceGenerator(time_step, ql.UniformRandomGenerator(self.seed)))
+		seq = ql.GaussianMultiPathGenerator(self.get_process(), np.linspace(0,length,time_step+1), rng, False)
+		
+		value = np.zeros((num_paths, time_step+1))
+		
+		for i in trange(num_paths):
+			sample_path = seq.next()
+			path = sample_path.value()
+			value[i, :] = np.array(path[0])
+		return value                         
+
+def train_test_split(data=None, test_size=None):
+    """Split simulated data into training and testing sample."""
+    xtrain = []
+    xtest = []
+    for x in data:
+        tmp_xtrain, tmp_xtest = model_selection.train_test_split(
+            x, test_size=test_size, shuffle=False)
+        xtrain += [tmp_xtrain]
+        xtest += [tmp_xtest]
+    return xtrain, xtest
+
+
+class EuropeanCall:
+	def __init__(self):
+		pass
+					
+	def get_BS_delta(self,S=None, sigma = None,risk_free = None, \
+												dividend = None, K = None, exercise_date = None, calculation_date = None, \
+												day_count = None, dt = None, evaluation_method = "Numpy"):
+		
+		if evaluation_method is "QuantLib":
+			# For our purpose, assume all inputs are scalar.
+			stochastic_process = BlackScholesProcess(s0 = S, sigma = sigma, \
+												risk_free = risk_free, dividend = dividend, day_count=day_count)
+				
+			engine = ql.AnalyticEuropeanEngine(stochastic_process.get_process(calculation_date))
+			
+			ql_payoff = ql.PlainVanillaPayoff(ql.Option.Call, K)
+			exercise_date = ql.EuropeanExercise(exercise_date)
+			instrument = ql.VanillaOption(ql_payoff, exercise_date)
+
+			if type(self.process).__name__ is "BlackScholesProcess":
+				engine = ql.AnalyticEuropeanEngine(self.process.get_process(calculation_date))
+				
+			instrument.setPricingEngine(engine)
+			
+			return instrument.delta()
+		elif evaluation_method is "Numpy":
+			# For our purpose, assume s0 is a NumPy array, other inputs are scalar.
+			T = np.arange(0, (exercise_date - calculation_date + 1))*dt
+			T = np.repeat(np.flip(T[None,:]), S.shape[0], 0)
+			
+			# Ignore division by 0 warning (expected behaviors as the limits of CDF is defined).
+			with np.errstate(divide='ignore'):
+				d1 = np.divide(np.log(S / K) + (risk_free - dividend + 0.5 * sigma ** 2) * T, sigma * np.sqrt(T))
+			
+			return stats.norm.cdf(d1, 0.0, 1.0)
+
+# Geometric Brownian Motion.
+N = 30 # Number of time steps (in days)
+
+S0 = 100.0 # Stock price at time = 0
+sigma = 0.2 # Implied volatility
+risk_free = 0.0 # Risk-free rate
+dividend = 0.0 # Continuous dividend yield
+
+Ktrain = 1*(10**5) # Size of training sample.
+Ktest_ratio = 0.2 # Fraction of training sample as testing sample.
+
+# European call option (short).
+strike = S0
+payoff_func = lambda x: -np.maximum(x - strike, 0.0)
+calculation_date = ql.Date.todaysDate()
+maturity_date = ql.Date.todaysDate() + N
+
+# Day convention.
+day_count = ql.Actual365Fixed() # Actual/Actual (ISDA)
+
+
+seed = 7 # Random seed. Change to have deterministic outcome.
+
+# Total obs = Training + Testing
+nobs = int(Ktrain*(1+Ktest_ratio)) 
+		
+# Length of one time-step (as fraction of a year).
+dt = day_count.yearFraction(calculation_date,calculation_date + 1) 
+maturity = N*dt # Maturities (in the unit of a year)
+
+stochastic_process = BlackScholesProcess(s0 = S0, sigma = sigma, risk_free = risk_free, \
+                        dividend = dividend, day_count = day_count, seed=seed)
+
+S = stochastic_process.gen_path(maturity, N, nobs)
+Sim_S=S.copy()
+
+print("\n\ns0 = " + str(S0))
+print("sigma = " + str(sigma))
+print("risk_free = " + str(risk_free) + "\n")
+print("Number of time steps = " + str(N))
+print("Length of each time step = " + "1/365\n")
+print("Simulation Done!")
+
+
+
+
+S= np.stack(S,axis=1)
+lnS =  np.log(S)
+dim_lnSt=[]
+for i in range(N+1):
+    dim_lnSt += [lnS[i,:,None]]
+
+
+zeros =  np.zeros(shape=S.shape,dtype=float)
+
+lnK= np.log(strike+zeros)
+dim_lnKT=[]
+for i in range(N+1):
+    dim_lnKT += [lnK[i,:,None]]
+
+SK = S-strike
+dim_SK=[]
+for i in range(N+1):
+    dim_SK += [SK[i,:,None]]
+
+Vt = zeros+sigma
+dim_Vt=[]
+for i in range(N+1):
+    dim_Vt += [Vt[i,:,None]]
+
+T=zeros+31
+dim_T=[]
+for i in range(N+1):
+    dim_T += [(T[i,:,None]-i)*dt]
+
+
+
+call = EuropeanCall()
+delta_BS = call.get_BS_delta(S = Sim_S, sigma = sigma, \
+              risk_free = risk_free, dividend = dividend, K = strike, \
+              exercise_date = maturity_date, \
+              calculation_date = calculation_date, 
+              day_count = day_count, dt = dt)
+    
+    
+Sim_Delta = np.stack(delta_BS,axis=1)
+dim_Delta=[]
+for i in range(N+1):
+    dim_Delta += [Sim_Delta[i,:,None]]
+    
+    
+#Define a DNN model
+ 
+model = tf.keras.Sequential([
+#Adds a densely-connected layer with 64 units to the model:
+layers.Dense(64, activation='relu', input_shape=(5,),name='layer1'),
+
+# Add another:
+layers.Dense(32, activation='relu', name='layer2'),
+    # Add an output layer with dim_y output units:
+layers.Dense(16, activation='relu', name='layer3'),
+layers.Dense(dim_y)],name='my_first_model')
+
+
+# model.summary()
+# model.layers
+
+#Configure a model for mean-squared error regression.
+model.compile(optimizer=tf.keras.optimizers.Adam(0.01),
+              loss='mse',       # mean squared error
+              metrics=['mae'])  # mean absolute error
+
+
+
+dim_x = 6            #input dimension of the analytical function
+dim_y = 1            #output dimension of the analytical function
+no_samples = 3720000  #number of observations
+no_test  = 120000      #test data
+
+c=np.array(dim_SK).reshape(no_samples)
+b=np.array(dim_lnKT).reshape(no_samples)
+a=np.array(dim_lnSt).reshape(no_samples)
+d=np.array(dim_T).reshape(no_samples)
+e=np.array(dim_Vt).reshape(no_samples)
+f=np.array(dim_Delta).reshape(no_samples)
+
+Data1 = np.empty([no_samples, dim_x])  
+for iI in range(no_samples):
+    Data1[iI][0] = a[iI]
+    Data1[iI][1] = b[iI]
+    Data1[iI][2] = c[iI]
+    Data1[iI][3] = d[iI]
+    Data1[iI][4] = e[iI]
+    Data1[iI][5] = f[iI]
+    
+
+Data1
+
+#Data1=np.delete(Data,range(119999),axis=0)
+
+Datatrain, Datatest = model_selection.train_test_split(
+            Data1, test_size=no_test, shuffle=False)
+
+Labelstrain=Datatrain[:,5].copy()
+Datatrain=Datatrain[:,range(5)]
+
+Labelstest=Datatest[:,5].copy()
+Datatest =Datatest[:,range(5)]
+
+np.array(Data).shape
+np.array(Labels).shape
+
+#train
+model.fit(Datatrain, Labelstrain, epochs=2, batch_size=32)
+
+#test
+test_loss, test_acc = model.evaluate(Datatest, Labelstest, verbose=1)
+print('Test accuracy:', test_acc)
+
+
+# Save weights to a TensorFlow Checkpoint file
+print("store the model")
+model.save_weights(Weight1)
+
+# this requires a model with the same architecture.
+print("reload the model")
+model.load_weights(Weight1)

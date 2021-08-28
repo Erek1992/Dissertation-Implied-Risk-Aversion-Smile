@@ -196,80 +196,77 @@ dim_Delta=[]
 for i in range(N+1):
     dim_Delta += [Sim_Delta[i,:,None]]
     
-    
-#Define a DNN model
- 
+#create input    
+
+no_test  = 20000
+no_samples=120000
+steps=31
+dim_x=6
+Data2 = np.empty([no_samples, steps , dim_x])  
+Data2[:,:,0] = np.array(dim_lnSt).T
+Data2[:,:,1] = np.array(dim_lnKT).T
+Data2[:,:,2] = np.array(dim_SK).T
+Data2[:,:,3] = np.array(dim_T).T
+Data2[:,:,4] = np.array(dim_Vt).T
+Data2[:,:,5] = np.array(dim_Delta).T
+
+Data2.shape 
+
+#split data
+
+train_part, test_part = model_selection.train_test_split(
+            Data2, test_size=no_test, shuffle=False)
+
+
+Labelstrain=train_part[:,:,5].copy()
+Datatrain=train_part[:,:,range(5)]
+
+
+Labelstest=test_part[:,:,5].copy()
+Datatest =test_part[:,:,range(5)]
+
+Datatrain.shape
+Labelstrain.shape
+Datatest.shape
+Labelstest.shape
+
+
+#crate LSTM
 model = tf.keras.Sequential([
 #Adds a densely-connected layer with 64 units to the model:
-layers.Dense(64, activation='relu', input_shape=(5,),name='layer1'),
+layers.LSTM(64, return_sequences=True),
 
 # Add another:
-layers.Dense(32, activation='relu', name='layer2'),
+layers.LSTM(32, return_sequences=True),
     # Add an output layer with dim_y output units:
-layers.Dense(16, activation='relu', name='layer3'),
-layers.Dense(dim_y)],name='my_first_model')
-
-
+layers.LSTM(16),
+layers.Dense(dim_y)],name='my_first_LSTM') 
+    
 # model.summary()
 # model.layers
-
+ 
 #Configure a model for mean-squared error regression.
-model.compile(optimizer=tf.keras.optimizers.Adam(0.01),
-              loss='mse',       # mean squared error
+model.compile(optimizer=tf.keras.optimizers.SGD(0.05),
+               loss=['mse'],       # mean squared error
               metrics=['mae'])  # mean absolute error
-
-
-
-dim_x = 6            #input dimension of the analytical function
-dim_y = 1            #output dimension of the analytical function
-no_samples = 3720000  #number of observations
-no_test  = 120000      #test data
-
-c=np.array(dim_SK).reshape(no_samples)
-b=np.array(dim_lnKT).reshape(no_samples)
-a=np.array(dim_lnSt).reshape(no_samples)
-d=np.array(dim_T).reshape(no_samples)
-e=np.array(dim_Vt).reshape(no_samples)
-f=np.array(dim_Delta).reshape(no_samples)
-
-Data1 = np.empty([no_samples, dim_x])  
-for iI in range(no_samples):
-    Data1[iI][0] = a[iI]
-    Data1[iI][1] = b[iI]
-    Data1[iI][2] = c[iI]
-    Data1[iI][3] = d[iI]
-    Data1[iI][4] = e[iI]
-    Data1[iI][5] = f[iI]
-    
-
-Data1
-
-#Data1=np.delete(Data,range(119999),axis=0)
-
-Datatrain, Datatest = model_selection.train_test_split(
-            Data1, test_size=no_test, shuffle=False)
-
-Labelstrain=Datatrain[:,5].copy()
-Datatrain=Datatrain[:,range(5)]
-
-Labelstest=Datatest[:,5].copy()
-Datatest =Datatest[:,range(5)]
-
-np.array(Data).shape
-np.array(Labels).shape
-
+	      
+	      
+	   
+	      
 #train
-model.fit(Datatrain, Labelstrain, epochs=2, batch_size=32)
+model.fit(Datatrain, Labelstrain, epochs=3, batch_size=10000)
+
+ 
 
 #test
-test_loss, test_acc = model.evaluate(Datatest, Labelstest, verbose=1)
-print('Test accuracy:', test_acc)
+test_loss, test_acc = model.evaluate(Datatest, Labelstest, verbose=2)
+
 
 
 # Save weights to a TensorFlow Checkpoint file
 print("store the model")
 model.save_weights(Weight1)
 
-# this requires a model with the same architecture.
+# load to same architecture.
 print("reload the model")
 model.load_weights(Weight1)

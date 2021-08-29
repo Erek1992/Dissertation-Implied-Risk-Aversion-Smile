@@ -233,14 +233,10 @@ Labelstest.shape
 
 #crate LSTM
 model = tf.keras.Sequential([
-#Adds a densely-connected layer with 64 units to the model:
-layers.LSTM(64, return_sequences=True),
-
-# Add another:
-layers.LSTM(32, return_sequences=True),
-    # Add an output layer with dim_y output units:
-layers.LSTM(16),
-layers.Dense(dim_y)],name='my_first_LSTM') 
+	layers.LSTM(64, return_sequences=True),
+	layers.LSTM(32, return_sequences=True),
+	layers.LSTM(16),
+	layers.Dense(dim_y)],name='my_first_LSTM') 
     
 # model.summary()
 # model.layers

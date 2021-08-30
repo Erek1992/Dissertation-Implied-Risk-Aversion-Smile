@@ -1,0 +1,120 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Aug 29 15:11:07 2021
+
+@author: Erek
+"""
+import tensorflow as tf
+import numpy as np
+import os
+import re
+import pandas as pd
+import matplotlib.pyplot as plt
+
+calendar=pd.bdate_range(start="20100104",end="20201231")
+
+Spot = pd.read_csv("Spot price with sigma.csv")
+
+Spot
+
+len(Spot)
+
+diff=[]
+for i in range(len(Spot)-1):
+    diff.append(Spot["close"][i+1]/Spot["close"][i])
+
+
+
+chucks= []
+for j in range(92):
+    chucks+= [diff[j*30:j*30+30]]
+
+np.random.shuffle(chucks)
+
+diff_histroy_shuffle_chuck=[100]
+for I in range(92):
+    for J in range(30):
+        a = chucks[I][J]*diff_histroy_shuffle_chuck[-1]
+        diff_histroy_shuffle_chuck.append(a)
+        
+
+    
+diff_histroy_shuffle_chuck_add29=[]
+# #add the first 29
+for i in range(30):
+    diff_histroy_shuffle_chuck_add29.append(chucks[20][i])
+
+chucks_new=[100.0]
+for i in range(29):
+    chucks_new.append(diff_histroy_shuffle_chuck_add29[i]*chucks_new[-1])
+    
+    
+# put into chucks
+chucks_new+=diff_histroy_shuffle_chuck    
+
+plt.plot(chucks_new)
+
+logreturns=np.diff(np.log(chucks_new))
+
+volatility = pd.Series(logreturns).rolling(window=30).std()*np.sqrt(252)
+
+
+
+SimSt = chucks_new[1:len(chucks_new)]
+SimSt = np.array(SimSt[29:len(SimSt)])
+SimVt = volatility[29:len(volatility)]
+SimVt[29]=0.2
+SimVt=np.array(SimVt)
+K = [70.0+i*5 for i in range(13)]
+
+
+	
+
+Sim_Option=pd.DataFrame()
+temp=pd.DataFrame(columns={"Date":"","St":"","stirke":"","Vt":"","C_P":""},index=[0])
+
+# Sim_Option['Date'][0]= pd.to_datetime(20100104,format="%Y%m%d")
+for i in range(len(SimSt)):
+    for j in range(len(K)):
+        temp["Date"][0] = calendar[i]
+        temp["stirke"][0]=K[j]
+        temp["St"][0]=SimSt[i] 
+        temp["Vt"][0]=SimVt[i]
+        Sim_Option=Sim_Option.append(temp,ignore_index=True)
+        
+Sim_Option["exdate"]=pd.to_datetime(20200803,format="%Y%m%d")
+Sim_Option["TTM"]=Sim_Option['exdate']-Sim_Option["Date"]
+Sim_Option['TTM']= pd.to_numeric(Sim_Option['TTM'])/86400000000000/365
+
+#s-k
+Sim_Option_c = Sim_Option.copy()
+Sim_Option_c["C_P"]="C"
+Sim_Option_c["PK"]=Sim_Option_c["St"]-Sim_Option_c["stirke"]
+
+#k-s
+Sim_Option_p = Sim_Option.copy()
+Sim_Option_p["C_P"]="P"
+Sim_Option_p["PK"]=Sim_Option_p["stirke"]-Sim_Option_p["St"]
+
+Simulate_Option = Sim_Option_c.append(Sim_Option_p)
+Simulate_Option = Simulate_Option.sort_values(by=['Date','stirke','C_P'],ascending=True)
+
+Simulate_Option
+
+
+
+#1024days
+# Sim_Option2=pd.DataFrame()
+# temp=pd.DataFrame(columns={"Date":"","St":"","stirke":"","Vt":"","C_P":""},index=[0])
+
+# for i in range(1024):
+#     for j in range(len(K)):
+#         temp["Date"][0] = calendar[i]
+#         temp["stirke"][0]=K[j]
+#         temp["St"][0]=SimSt[i] 
+#         temp["Vt"][0]=SimVt[i]
+#         Sim_Option2=Sim_Option2.append(temp,ignore_index=True)
+        
+# Sim_Option["exdate"]=pd.to_datetime(20131205,format="%Y%m%d")
+# Sim_Option["TTM"]=Sim_Option['exdate']-Sim_Option["Date"]
+# Sim_Option['TTM']= pd.to_numeric(Sim_Option['TTM'])/86400000000000/365
